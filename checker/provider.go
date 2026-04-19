@@ -44,9 +44,9 @@ func (p *dummyProvider) Definition() *sdk.CheckerDefinition {
 // ExtractMetrics implements sdk.CheckerMetricsReporter.
 // This is called when happyDomain (or the /report endpoint) needs to turn
 // raw observation data into time-series metrics for graphing.
-func (p *dummyProvider) ExtractMetrics(raw json.RawMessage, collectedAt time.Time) ([]sdk.CheckMetric, error) {
+func (p *dummyProvider) ExtractMetrics(ctx sdk.ReportContext, collectedAt time.Time) ([]sdk.CheckMetric, error) {
 	var data DummyData
-	if err := json.Unmarshal(raw, &data); err != nil {
+	if err := json.Unmarshal(ctx.Data(), &data); err != nil {
 		return nil, err
 	}
 
