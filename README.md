@@ -19,11 +19,12 @@ Use this as a template when you create your own checker.
    - [Step 5: Write Evaluation Rules](#step-5-write-evaluation-rules)
    - [Step 6: Wire It Up (main.go)](#step-6-wire-it-up-maingo)
    - [Step 7: Create the Plugin Entrypoint](#step-7-create-the-plugin-entrypoint)
-5. [Running the Checker](#running-the-checker)
-6. [Testing with curl](#testing-with-curl)
-7. [Deploying to happyDomain](#deploying-to-happydomain)
-8. [License & happyDomain compatibility](#license--happydomain-compatibility)
-9. [Going Further](#going-further)
+5. [Optional: Standalone Human UI (`CheckerInteractive`)](#optional-standalone-human-ui-checkerinteractive)
+6. [Running the Checker](#running-the-checker)
+7. [Testing with curl](#testing-with-curl)
+8. [Deploying to happyDomain](#deploying-to-happydomain)
+9. [License & happyDomain compatibility](#license--happydomain-compatibility)
+10. [Going Further](#going-further)
 
 ---
 
@@ -160,6 +161,7 @@ You can also implement optional interfaces to unlock additional features:
 | `CheckerDefinitionProvider`   | `/definition` and `/evaluate` endpoints  |
 | `CheckerMetricsReporter`      | `/report` endpoint (JSON metrics)        |
 | `CheckerHTMLReporter`         | `/report` endpoint (HTML)                |
+| `CheckerInteractive`          | `GET`/`POST /check` human-friendly HTML UI |
 
 In this example, we implement all three optional interfaces:
 
@@ -291,19 +293,19 @@ A rule implements the `CheckRule` interface:
 type CheckRule interface {
     Name() string
     Description() string
-    Evaluate(ctx context.Context, obs ObservationGetter, opts CheckerOptions) CheckState
+    Evaluate(ctx context.Context, obs ObservationGetter, opts CheckerOptions) []CheckState
 }
 ```
 
 Optionally, your rule can also implement `ValidateOptions(opts) error` for early validation.
 
-The `Evaluate` method receives an `ObservationGetter` to retrieve the collected data:
+The `Evaluate` method receives an `ObservationGetter` to retrieve the collected data and returns a **slice** of `CheckState` — one entry per element being evaluated:
 
 ```go
-func (r *dummyRule) Evaluate(ctx context.Context, obs ObservationGetter, opts CheckerOptions) CheckState {
+func (r *dummyRule) Evaluate(ctx context.Context, obs ObservationGetter, opts CheckerOptions) []CheckState {
     var data DummyData
     if err := obs.Get(ctx, ObservationKeyDummy, &data); err != nil {
-        return CheckState{Status: StatusError, Message: "..."}
+        return []CheckState{{Status: StatusError, Message: "..."}}
     }
 
     warningThreshold := sdk.GetFloatOption(opts, "warningThreshold", 50)
@@ -311,16 +313,52 @@ func (r *dummyRule) Evaluate(ctx context.Context, obs ObservationGetter, opts Ch
 
     switch {
     case data.Score < criticalThreshold:
-        return CheckState{Status: StatusCrit, ...}
+        return []CheckState{{Status: StatusCrit, ...}}
     case data.Score < warningThreshold:
-        return CheckState{Status: StatusWarn, ...}
+        return []CheckState{{Status: StatusWarn, ...}}
     default:
-        return CheckState{Status: StatusOK, ...}
+        return []CheckState{{Status: StatusOK, ...}}
     }
 }
 ```
 
-**Status values**: `StatusOK`, `StatusWarn`, `StatusCrit`, `StatusError`, `StatusUnknown`.
+**Contract**: `Evaluate` must return at least one state. If a rule has nothing to evaluate, return a single `CheckState` describing that fact (typically `StatusInfo` or `StatusOK`). The SDK server injects a `StatusUnknown` placeholder if a rule returns an empty or nil slice.
+
+**The `CheckState` struct**:
+
+```go
+type CheckState struct {
+    Status   Status
+    Message  string
+    RuleName string         // set automatically by the server — do not set yourself
+    Code     string         // optional — use to distinguish kinds of finding within one rule
+    Subject  string         // opaque per-element identifier (hostname, cert serial, …)
+    Meta     map[string]any
+}
+```
+
+- **`Subject`** identifies the element a state refers to (a hostname, a certificate serial, a nameserver FQDN, …). Leave empty for rules that produce a single global result. Do **not** repeat the subject inside `Message` — the UI renders it separately.
+- **`RuleName`** is stamped automatically by the server with `rule.Name()` on every returned state. UIs should use `RuleName` (not `Code`) to group, filter, or offer "disable this rule" controls.
+- **`Code`** is left untouched by the server. Set it only when your rule emits several kinds of finding (e.g. `too_many_lookups` vs `syntax_error`).
+
+**One state per subject**: a rule that iterates over N elements should emit N states (one per `Subject`) instead of concatenating them into a single `Message`:
+
+```go
+func (r *CertExpiryRule) Evaluate(...) []CheckState {
+    out := make([]CheckState, 0, len(certs))
+    for _, cert := range certs {
+        s := evalCert(cert)
+        s.Subject = cert.Host
+        out = append(out, s)
+    }
+    if len(out) == 0 {
+        return []CheckState{{Status: StatusInfo, Message: "no certificate to evaluate"}}
+    }
+    return out
+}
+```
+
+**Status values**: `StatusOK`, `StatusWarn`, `StatusCrit`, `StatusError`, `StatusUnknown`, `StatusInfo`.
 
 You can define **multiple rules** per checker. Each rule evaluates the same collected data from a different angle. Users can enable/disable rules individually in the UI.
 
@@ -351,6 +389,7 @@ func main() {
 | `GET /definition`  | -      | `CheckerDefinitionProvider`  |
 | `POST /evaluate`   | -      | `CheckerDefinitionProvider`  |
 | `POST /report`     | -      | `CheckerMetricsReporter` or `CheckerHTMLReporter` |
+| `GET`/`POST /check` | -     | `CheckerInteractive`         |
 
 ### Step 7: Create the Plugin Entrypoint
 
@@ -382,6 +421,53 @@ go build -buildmode=plugin -o checker-dummy.so ./plugin
 ```
 
 Then drop the resulting `checker-dummy.so` into one of happyDomain's configured plugin directories. It will be picked up at startup.
+
+---
+
+
+## Optional: Standalone Human UI (`CheckerInteractive`)
+
+The SDK provides an optional `CheckerInteractive` interface that exposes a browser-friendly `/check` route, letting your checker be used as a standalone DNS-probing tool without a happyDomain instance in front of it.
+
+```go
+type CheckerInteractive interface {
+    RenderForm() []CheckerOptionField
+    ParseForm(r *http.Request) (CheckerOptions, error)
+}
+```
+
+When a provider implements it, `NewServer` automatically registers:
+
+- `GET /check` — renders an HTML form derived from `RenderForm()`.
+- `POST /check` — calls `ParseForm`, runs the standard `Collect` → `Evaluate` → `GetHTMLReport` / `ExtractMetrics` pipeline, and returns a consolidated HTML page (states table, metrics table, sandboxed iframe around the HTML report).
+
+### Why it exists
+
+Over the HTTP `/evaluate` endpoint, happyDomain fills `AutoFill*`-backed options (zone records, service payload, …) from its execution context. A human hitting `/check` has no such host — `ParseForm` is where the checker does whatever lookups are needed (typically direct DNS queries) to turn a minimal human input (e.g. a domain name) into the full `CheckerOptions` that `Collect` expects.
+
+### When to implement it
+
+- You want the checker to be usable as a standalone DNS-probing tool (debug, demo, one-off runs) without a happyDomain instance.
+- You are fine doing the auto-fill work yourself from the user's inputs. Checkers whose `Collect` intrinsically requires data only happyDomain can provide (e.g. a full zone diff) should skip this.
+
+### Minimal implementation
+
+```go
+func (p *dummyProvider) RenderForm() []sdk.CheckerOptionField {
+    return []sdk.CheckerOptionField{
+        {Id: "message", Type: "string", Label: "Custom message",
+         Placeholder: "Hello!", Required: false},
+    }
+}
+
+func (p *dummyProvider) ParseForm(r *http.Request) (sdk.CheckerOptions, error) {
+    return sdk.CheckerOptions{
+        "message": strings.TrimSpace(r.FormValue("message")),
+    }, nil
+}
+```
+
+Returning an error from `ParseForm` re-renders the form with the error message displayed so the user can correct and resubmit.
 
 ---
 
@@ -467,11 +553,14 @@ Response (score 42.5 is below the warning threshold of 50):
     {
       "status": 3,
       "message": "Score: 42.5 - test",
+      "rule_name": "dummy_score_check",
       "code": "dummy_score_check"
     }
   ]
 }
 ```
+
+Each entry in `states` carries a `rule_name` (server-stamped) and may include a `subject` field when the rule evaluates multiple elements.
 
 Status codes: `1` = OK, `3` = Warning, `4` = Critical.
 

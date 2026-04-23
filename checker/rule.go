@@ -58,15 +58,15 @@ func (r *dummyRule) ValidateOptions(opts sdk.CheckerOptions) error {
 // The ObservationGetter.Get method deserialises the stored JSON into your data
 // struct. Always check the error: the observation may not be available if
 // collection failed.
-func (r *dummyRule) Evaluate(ctx context.Context, obs sdk.ObservationGetter, opts sdk.CheckerOptions) sdk.CheckState {
+func (r *dummyRule) Evaluate(ctx context.Context, obs sdk.ObservationGetter, opts sdk.CheckerOptions) []sdk.CheckState {
 	// Retrieve the observation data by key.
 	var data DummyData
 	if err := obs.Get(ctx, ObservationKeyDummy, &data); err != nil {
-		return sdk.CheckState{
+		return []sdk.CheckState{{
 			Status:  sdk.StatusError,
 			Message: fmt.Sprintf("Failed to get dummy data: %v", err),
 			Code:    "dummy_error",
-		}
+		}}
 	}
 
 	// Read thresholds from options.
@@ -84,7 +84,7 @@ func (r *dummyRule) Evaluate(ctx context.Context, obs sdk.ObservationGetter, opt
 		status = sdk.StatusOK
 	}
 
-	return sdk.CheckState{
+	return []sdk.CheckState{{
 		Status:  status,
 		Message: fmt.Sprintf("Score: %.1f - %s", data.Score, data.Message),
 		Code:    "dummy_score_check",
@@ -92,5 +92,5 @@ func (r *dummyRule) Evaluate(ctx context.Context, obs sdk.ObservationGetter, opt
 			"score":   data.Score,
 			"message": data.Message,
 		},
-	}
+	}}
 }
