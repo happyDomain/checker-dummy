@@ -299,7 +299,7 @@ type CheckRule interface {
 
 Optionally, your rule can also implement `ValidateOptions(opts) error` for early validation.
 
-The `Evaluate` method receives an `ObservationGetter` to retrieve the collected data and returns a **slice** of `CheckState` — one entry per element being evaluated:
+The `Evaluate` method receives an `ObservationGetter` to retrieve the collected data and returns a **slice** of `CheckState`, one entry per element being evaluated:
 
 ```go
 func (r *dummyRule) Evaluate(ctx context.Context, obs ObservationGetter, opts CheckerOptions) []CheckState {
@@ -330,14 +330,14 @@ func (r *dummyRule) Evaluate(ctx context.Context, obs ObservationGetter, opts Ch
 type CheckState struct {
     Status   Status
     Message  string
-    RuleName string         // set automatically by the server — do not set yourself
-    Code     string         // optional — use to distinguish kinds of finding within one rule
+    RuleName string         // set automatically by the server, do not set yourself
+    Code     string         // optional, use to distinguish kinds of finding within one rule
     Subject  string         // opaque per-element identifier (hostname, cert serial, …)
     Meta     map[string]any
 }
 ```
 
-- **`Subject`** identifies the element a state refers to (a hostname, a certificate serial, a nameserver FQDN, …). Leave empty for rules that produce a single global result. Do **not** repeat the subject inside `Message` — the UI renders it separately.
+- **`Subject`** identifies the element a state refers to (a hostname, a certificate serial, a nameserver FQDN, …). Leave empty for rules that produce a single global result. Do **not** repeat the subject inside `Message`, the UI renders it separately.
 - **`RuleName`** is stamped automatically by the server with `rule.Name()` on every returned state. UIs should use `RuleName` (not `Code`) to group, filter, or offer "disable this rule" controls.
 - **`Code`** is left untouched by the server. Set it only when your rule emits several kinds of finding (e.g. `too_many_lookups` vs `syntax_error`).
 
@@ -438,12 +438,12 @@ type CheckerInteractive interface {
 
 When a provider implements it, `NewServer` automatically registers:
 
-- `GET /check` — renders an HTML form derived from `RenderForm()`.
-- `POST /check` — calls `ParseForm`, runs the standard `Collect` → `Evaluate` → `GetHTMLReport` / `ExtractMetrics` pipeline, and returns a consolidated HTML page (states table, metrics table, sandboxed iframe around the HTML report).
+- `GET /check`, renders an HTML form derived from `RenderForm()`.
+- `POST /check`, calls `ParseForm`, runs the standard `Collect` → `Evaluate` → `GetHTMLReport` / `ExtractMetrics` pipeline, and returns a consolidated HTML page (states table, metrics table, sandboxed iframe around the HTML report).
 
 ### Why it exists
 
-Over the HTTP `/evaluate` endpoint, happyDomain fills `AutoFill*`-backed options (zone records, service payload, …) from its execution context. A human hitting `/check` has no such host — `ParseForm` is where the checker does whatever lookups are needed (typically direct DNS queries) to turn a minimal human input (e.g. a domain name) into the full `CheckerOptions` that `Collect` expects.
+Over the HTTP `/evaluate` endpoint, happyDomain fills `AutoFill*`-backed options (zone records, service payload, …) from its execution context. A human hitting `/check` has no such host, `ParseForm` is where the checker does whatever lookups are needed (typically direct DNS queries) to turn a minimal human input (e.g. a domain name) into the full `CheckerOptions` that `Collect` expects.
 
 ### When to implement it
 
@@ -605,7 +605,7 @@ The types and helpers your checker depends on live in [`checker-sdk-go`](https:/
 **What this means for the deployment mode you choose:**
 
 - **Standalone HTTP checker:** your checker is a separate process communicating with happyDomain over the network. It is *not* a derivative work of happyDomain and you can license it however you want (proprietary, MIT, GPL, anything).
-- **In-process plugin (`.so`):** your checker is loaded into the happyDomain process via `plugin.Open`, but it only links against the Apache-licensed SDK — not against any AGPL code. You are free to license your plugin however you want.
+- **In-process plugin (`.so`):** your checker is loaded into the happyDomain process via `plugin.Open`, but it only links against the Apache-licensed SDK, not against any AGPL code. You are free to license your plugin however you want.
 - **Built-in checker** (imported directly into the happyDomain source tree): same as above on the linking side. Built-in checkers maintained inside the happyDomain repository are conventionally distributed under AGPL-3.0 to stay consistent with the rest of the project, but this is a project policy, not a legal requirement coming from the SDK.
 
 If your checker imports anything *else* from the happyDomain repository (for example service abstractions like `happydns.ServiceMessage`), then that code *is* AGPL-licensed and the AGPL constraint comes back. The SDK alone is safe; the rest of happyDomain is not.
