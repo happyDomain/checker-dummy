@@ -10,5 +10,6 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=${CHECKER_VERSION}" -o /che
 
 FROM scratch
 COPY --from=builder /checker-dummy /checker-dummy
+USER 65534:65534
 EXPOSE 8080
 ENTRYPOINT ["/checker-dummy"]
