@@ -6,7 +6,7 @@ CHECKER_SOURCES := main.go $(wildcard checker/*.go)
 
 GO_LDFLAGS := -X main.Version=$(CHECKER_VERSION)
 
-.PHONY: all plugin docker clean
+.PHONY: all plugin docker test clean
 
 all: $(CHECKER_NAME)
 
@@ -20,6 +20,9 @@ $(CHECKER_NAME).so: $(CHECKER_SOURCES) $(wildcard plugin/*.go)
 
 docker:
 	docker build --build-arg CHECKER_VERSION=$(CHECKER_VERSION) -t $(CHECKER_IMAGE) .
+
+test:
+	go test -tags standalone ./...
 
 clean:
 	rm -f $(CHECKER_NAME) $(CHECKER_NAME).so
