@@ -43,34 +43,6 @@ Every checker does three things:
 
 A checker can run in three modes:
 
-### Standalone HTTP Server (External Checker)
-
-The checker runs as its own process and exposes an HTTP API. happyDomain communicates with it over the network. This is the most flexible option: you can write your checker in any language, deploy it independently, and scale it separately.
-
-```
-┌─────────────┐    HTTP     ┌─────────────────┐
-│ happyDomain │ ──────────► │ checker-dummy   │
-│   server    │ ◄────────── │ (this program)  │
-└─────────────┘             └─────────────────┘
-```
-
-### In-Process Plugin
-
-The checker is compiled as a Go plugin (`.so` file) and loaded directly into the happyDomain process. This is simpler to deploy (single binary) but requires the checker to be written in Go.
-
-```
-┌──────────────────────────────────────┐
-│ happyDomain server                   │
-│                                      │
-│   ┌──────────────────────────────┐   │
-│   │ checker-dummy.so (plugin)    │   │
-│   │ checker-ping.so (plugin)     │   │
-│   │ checker-matrix.so (plugin)   │   │
-│   │ checker-....so (plugin)      │   │
-│   └──────────────────────────────┘   │
-└──────────────────────────────────────┘
-```
-
 ### Built-in Checker
 
 The checker package can be imported directly into the happyDomain server and registered at init time: no plugin loading, no separate process. This avoids the operational burden of Go's plugin system (matching toolchain versions, CGO, `.so` distribution) entirely.
@@ -93,6 +65,34 @@ func init() {
 This mode is reserved for checkers maintained as part of the happyDomain project itself. Or if you compile yourself your own version of happyDomain.
 
 **Both standalone, plugin and built-in modes use the same checker code; only the entry point differs.**
+
+### In-Process Plugin
+
+The checker is compiled as a Go plugin (`.so` file) and loaded directly into the happyDomain process. This is simpler to deploy (single binary) but requires the checker to be written in Go.
+
+```
+┌──────────────────────────────────────┐
+│ happyDomain server                   │
+│                                      │
+│   ┌──────────────────────────────┐   │
+│   │ checker-dummy.so (plugin)    │   │
+│   │ checker-ping.so (plugin)     │   │
+│   │ checker-matrix.so (plugin)   │   │
+│   │ checker-....so (plugin)      │   │
+│   └──────────────────────────────┘   │
+└──────────────────────────────────────┘
+```
+
+### Standalone HTTP Server (External Checker)
+
+The checker runs as its own process and exposes an HTTP API. happyDomain communicates with it over the network. This is the most flexible option: you can write your checker in any language, deploy it independently, and scale it separately.
+
+```
+┌─────────────┐    HTTP     ┌─────────────────┐
+│ happyDomain │ ──────────► │ checker-dummy   │
+│   server    │ ◄────────── │ (this program)  │
+└─────────────┘             └─────────────────┘
+```
 
 
 ## Repository Structure
